@@ -1,0 +1,216 @@
+# atlas_ml — Developer Reference
+
+This package contains the ATLAS-ML training and inference pipeline. For project background, architecture decisions, and user stories see the [parent README](../README.md).
+
+---
+
+## Package Structure
+
+```
+atlas-ml/
+├── generate_spectrograms.py        # ESC-50 WAV → spectrogram PNG
+├── generate_stead_spectrograms.py  # STEAD HDF5 → spectrogram PNG
+└── atlas_ml/
+    ├── config.py     # Class taxonomy, dataset mappings, hyperparameters, paths
+    ├── dataset.py    # Assembles combined training dataset
+    ├── train.py      # Two-phase EfficientNet-B0 training pipeline
+    └── predict.py    # Inference — classify one or more spectrogram images
+```
+
+---
+
+## Quickstart
+
+```bash
+# 1. Generate ESC-50 spectrograms (requires ESC-50 dataset)
+python generate_spectrograms.py
+
+# 2. Generate STEAD spectrograms (requires STEAD download via SeisBench)
+python generate_stead_spectrograms.py
+
+# 3. Assemble combined dataset
+python -m atlas_ml.dataset
+
+# 4. Train
+python -m atlas_ml.train
+
+# 5. Classify an image
+python -m atlas_ml.predict path/to/spectrogram.png
+```
+
+---
+
+## File Reference
+
+### `config.py`
+
+Central configuration — edit this file to change the class taxonomy, dataset mappings, or training hyperparameters. No other files need to change for taxonomy adjustments.
+
+**Key contents:**
+
+| Name | Description |
+|------|-------------|
+| `CLASSES` | Ordered list of 5 class names — order determines integer label assignment |
+| `ESC50_CLASS_MAP` | Maps ESC-50 category names → ATLAS class names. Categories not listed are ignored. |
+| `CONFIDENCE_THRESHOLD` | Predictions below this (0.0–1.0) are flagged as uncertain. Default: 0.60 |
+| `P1_EPOCHS / P1_LR` | Phase 1 (frozen backbone) epochs and learning rate |
+| `P2_EPOCHS / P2_LR / P2_LR_BB` | Phase 2 (full fine-tune) epochs, classifier LR, backbone LR |
+| `COMBINED_DATASET` | Path to the assembled training dataset |
+| `RUNS_DIR` | Where training run directories are written |
+
+**Current classes:**
+
+| Class | Source | Description |
+|-------|--------|-------------|
+| `seismic_event` | STEAD earthquakes | Real tectonic waveforms |
+| `seismic_noise` | STEAD noise traces | Instrument background noise |
+| `mechanical_noise` | ESC-50 | Rotating/reciprocating machinery |
+| `environmental_noise` | ESC-50 | Weather and ambient ground coupling |
+| `impulsive_noise` | ESC-50 | Sudden transients that mimic seismic arrivals |
+
+---
+
+### `dataset.py`
+
+Assembles the combined training dataset from ESC-50 and STEAD spectrograms by symlinking images into a unified class directory structure.
+
+**Usage:**
+```bash
+python -m atlas_ml.dataset
+```
+
+**Output:** `data/combined_spectrograms/<class_name>/*.png`
+
+**What it does:**
+- Reads ESC-50 spectrograms from `data/spectrograms/` and maps them to ATLAS classes via `ESC50_CLASS_MAP`
+- Reads STEAD spectrograms from `data/stead_spectrograms/`
+- Writes (symlinks) everything into `data/combined_spectrograms/` with one subdirectory per class
+- Prints a class balance summary
+
+---
+
+### `train.py`
+
+Two-phase EfficientNet-B0 training pipeline.
+
+**Usage:**
+```bash
+python -m atlas_ml.train
+python -m atlas_ml.train --data path/to/custom/dataset
+```
+
+**What it does:**
+1. Loads images from `combined_spectrograms/`, splits 80/10/10 (train/val/test), stratified by class
+2. **Phase 1** — freezes the EfficientNet backbone, trains only the classifier head
+3. **Phase 2** — unfreezes all layers, fine-tunes with a lower learning rate on the backbone
+4. Saves the best checkpoint (by val accuracy) throughout training
+5. Evaluates the best checkpoint on the held-out test set and prints a per-class report
+
+**Output — a timestamped run directory under `runs/`:**
+
+| File | Contents |
+|------|----------|
+| `best_model.pt` | Weights from the epoch with highest validation accuracy — use this for inference |
+| `final_model.pt` | Weights from the last epoch |
+| `model_meta.json` | Class names, confidence threshold, val accuracy, dataset path |
+| `history.png` | Training/validation loss and accuracy curves |
+| `confusion.png` | Normalised confusion matrix on test set |
+| `results.txt` | Per-class precision, recall, F1 on test set |
+
+---
+
+### `predict.py`
+
+Loads `best_model.pt` from a training run and classifies one or more spectrogram PNG images.
+
+**Usage:**
+```bash
+# Classify a single image (uses the most recent training run automatically)
+python -m atlas_ml.predict path/to/spectrogram.png
+
+# Classify multiple images
+python -m atlas_ml.predict image1.png image2.png image3.png
+
+# Use a specific training run
+python -m atlas_ml.predict image.png --model runs/atlas_ml_20260302_142439
+```
+
+**Output:**
+```
+Model   : atlas_ml_20260302_142439  (val acc 91.3%)
+Device  : mps
+Classes : seismic_event, seismic_noise, mechanical_noise, environmental_noise, impulsive_noise
+Threshold: 60%  (below → uncertain)
+
+  bucket1001$529,:3,:6000.png    seismic_event      93.0%
+  rain_sample.png                environmental_noise  55.1%  ⚠ uncertain
+```
+
+Predictions below the confidence threshold are flagged with `⚠ uncertain`. The threshold is read from `model_meta.json` in the run directory (set in `config.py` before training).
+
+---
+
+### `generate_spectrograms.py`  *(top-level, not part of the package)*
+
+Converts ESC-50 WAV files to mel spectrogram PNGs.
+
+**Usage:**
+```bash
+python generate_spectrograms.py
+python generate_spectrograms.py --sample   # 5 labeled preview images per class
+```
+
+**Requires:** `data/ESC-50/` (read-only, not committed)
+**Output:** `data/spectrograms/<esc50_category>/*.png`
+
+---
+
+### `generate_stead_spectrograms.py`  *(top-level, not part of the package)*
+
+Converts STEAD seismic waveforms to mel spectrogram PNGs using the SeisBench HDF5 file.
+
+**Usage:**
+```bash
+python generate_stead_spectrograms.py
+python generate_stead_spectrograms.py --events 2000 --noise 2000
+python generate_stead_spectrograms.py --sample   # 5 labeled preview images per class
+python generate_stead_spectrograms.py --check    # verify HDF5 structure without generating
+```
+
+**Requires:** STEAD downloaded via SeisBench (`~/.seisbench/datasets/STEAD/`)
+**Output:** `data/stead_spectrograms/seismic_event/*.png` and `data/stead_spectrograms/seismic_noise/*.png`
+
+**Note on STEAD download:** SeisBench downloads the pre-processed STEAD HDF5 (~85GB) automatically on first use:
+```python
+import seisbench.data as sbd
+sbd.STEAD()
+```
+If a download stalls and leaves `.partial` files, use `sbd.STEAD(force=True)` to restart — SeisBench does not support resuming partial downloads.
+
+---
+
+## Data Sources
+
+Neither dataset is committed to this repo — both must be obtained separately.
+
+| Dataset | Size | How to get it |
+|---------|------|---------------|
+| ESC-50 | ~600MB | [github.com/karolpiczak/ESC-50](https://github.com/karolpiczak/ESC-50) |
+| STEAD (via SeisBench) | ~85GB | `import seisbench.data as sbd; sbd.STEAD()` |
+
+---
+
+## Model Performance (baseline, 2026-03-02)
+
+Trained on 4720 images, EfficientNet-B0, MPS device.
+
+| Class | Precision | Recall | F1 | Support |
+|-------|-----------|--------|----|---------|
+| seismic_event | 0.917 | 0.935 | 0.926 | 200 |
+| seismic_noise | 0.932 | 0.895 | 0.913 | 200 |
+| mechanical_noise | 0.929 | 0.812 | 0.867 | 32 |
+| environmental_noise | 0.625 | 0.833 | 0.714 | 24 |
+| impulsive_noise | 0.750 | 0.750 | 0.750 | 16 |
+| **overall** | | | **0.898** | 472 |
+
+`environmental_noise` and `impulsive_noise` are the weakest classes due to limited training images (~160–240 vs. 2000 for seismic classes). More ESC-50 category mappings or additional data sources will improve these.
