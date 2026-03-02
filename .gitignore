@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Training runs and model checkpoints
+runs/
+*.pt
+*.pth
+
+# Datasets — large, not version controlled
+data/
+*.hdf5
+*.hdf5.partial
+*.csv.partial
+
+# Generated spectrograms
+stead_spectrograms/
+combined_spectrograms/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
