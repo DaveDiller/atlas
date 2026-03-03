@@ -15,10 +15,14 @@ Watch mode — monitor a directory and classify new images as they arrive:
 
 In watch mode, each new PNG that appears in the watched directory is classified
 once and not re-processed. Press Ctrl+C to stop.
+
+Add --route to enable file routing to pending/ and CSV logging.
 """
 
 import argparse
+import csv
 import json
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -29,7 +33,7 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-from .config import IMG_SIZE, RUNS_DIR
+from .config import IMG_SIZE, INFERENCE_LOG, INFERENCE_PENDING, RUNS_DIR
 
 MEAN = [0.485, 0.456, 0.406]
 STD  = [0.229, 0.224, 0.225]
@@ -131,12 +135,35 @@ def predict(image_paths: list[Path], run_dir: Path, device: torch.device = None)
         print(_format_result(img_path, class_name, confidence, uncertain))
 
 
-def watch(watch_dir: Path, interval: float, run_dir: Path, device: torch.device = None):
-    """Watch mode: poll a directory every `interval` seconds, classify new PNGs."""
+def _log_classification(img_path: Path, class_name: str, confidence: float, uncertain: bool):
+    """Append one row to INFERENCE_LOG, creating the file with headers if needed."""
+    write_header = not INFERENCE_LOG.exists()
+    with INFERENCE_LOG.open("a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(["timestamp", "filename", "source_path", "predicted_class", "confidence", "uncertain"])
+        writer.writerow([
+            datetime.now().isoformat(timespec="seconds"),
+            img_path.name,
+            str(img_path),
+            class_name,
+            f"{confidence:.4f}",
+            uncertain,
+        ])
+
+
+def watch(watch_dir: Path, interval: float, run_dir: Path, device: torch.device = None,
+          route: bool = False):
+    """Watch mode: poll a directory every `interval` seconds, classify new PNGs.
+
+    When route=True, each classified file is moved to pending/<class>/ and a row
+    is appended to classification_log.csv.
+    """
     model, class_names, threshold, device = load_model(run_dir, device)
     _print_header(run_dir, class_names, threshold, device)
 
-    print(f"Watching : {watch_dir}  (every {interval}s)  — Ctrl+C to stop\n")
+    route_note = "  [routing ON → pending/]" if route else ""
+    print(f"Watching : {watch_dir}  (every {interval}s)  — Ctrl+C to stop{route_note}\n")
 
     seen = set(watch_dir.glob("*.png"))  # don't re-process files already present
 
@@ -150,6 +177,13 @@ def watch(watch_dir: Path, interval: float, run_dir: Path, device: torch.device 
                     model, img_path, class_names, threshold, device)
                 ts = datetime.now().strftime("%H:%M:%S")
                 print(f"[{ts}] {_format_result(img_path, class_name, confidence, uncertain)}")
+
+                if route:
+                    dest_dir = INFERENCE_PENDING / class_name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(img_path), dest_dir / img_path.name)
+                    _log_classification(img_path, class_name, confidence, uncertain)
+
             seen = current
     except KeyboardInterrupt:
         print("\nStopped.")
@@ -173,6 +207,9 @@ if __name__ == "__main__":
         help="Poll interval in seconds for watch mode (default: 10)")
 
     parser.add_argument(
+        "--route", action="store_true", default=False,
+        help="Move classified files to pending/<class>/ and log to classification_log.csv")
+    parser.add_argument(
         "--model", type=Path, default=None,
         help="Path to a training run directory (default: latest run)")
     parser.add_argument(
@@ -187,7 +224,7 @@ if __name__ == "__main__":
         if not args.watch.is_dir():
             print(f"Watch directory not found: {args.watch}")
             sys.exit(1)
-        watch(args.watch, args.interval, run_dir, device)
+        watch(args.watch, args.interval, run_dir, device, route=args.route)
     elif args.images:
         predict(args.images, run_dir, device)
     else:
