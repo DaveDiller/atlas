@@ -1,19 +1,27 @@
 """
-ATLAS-ML inference — classify a seismic spectrogram image.
+ATLAS-ML inference — classify seismic spectrogram images.
 
 Loads best_model.pt from a training run and predicts the class of one or more
 PNG spectrogram images, with a confidence score and an "uncertain" flag for
 predictions below the threshold stored in model_meta.json.
 
-Usage:
+Single-shot mode — classify a fixed list of images:
   python -m atlas_ml.predict path/to/spectrogram.png
-  python -m atlas_ml.predict path/to/spectrogram.png --model runs/atlas_ml_20260302_142439
-  python -m atlas_ml.predict data/stead_spectrograms/seismic_event/*.png
+  python -m atlas_ml.predict image1.png image2.png --model runs/atlas_ml_20260302_142439
+
+Watch mode — monitor a directory and classify new images as they arrive:
+  python -m atlas_ml.predict --watch inbox/ --interval 5
+  python -m atlas_ml.predict --watch inbox/ --interval 30 --model runs/atlas_ml_20260302_142439
+
+In watch mode, each new PNG that appears in the watched directory is classified
+once and not re-processed. Press Ctrl+C to stop.
 """
 
 import argparse
 import json
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import timm
@@ -95,36 +103,87 @@ def predict_image(model, img_path: Path, class_names, threshold, device):
     return class_name, confidence, uncertain
 
 
-def predict(image_paths: list[Path], run_dir: Path):
-    model, class_names, threshold, device = load_model(run_dir)
-
-    print(f"Model   : {run_dir.name}  (val acc {json.loads((run_dir / 'model_meta.json').read_text())['val_accuracy']:.1%})")
-    print(f"Device  : {device}")
-    print(f"Classes : {', '.join(class_names)}")
+def _print_header(run_dir, class_names, threshold, device):
+    meta = json.loads((run_dir / "model_meta.json").read_text())
+    print(f"Model    : {run_dir.name}  (val acc {meta['val_accuracy']:.1%})")
+    print(f"Device   : {device}")
+    print(f"Classes  : {', '.join(class_names)}")
     print(f"Threshold: {threshold:.0%}  (below → uncertain)\n")
+
+
+def _format_result(img_path: Path, class_name, confidence, uncertain) -> str:
+    flag = "  ⚠ uncertain" if uncertain else ""
+    return f"  {img_path.name:50s}  {class_name:25s}  {confidence:.1%}{flag}"
+
+
+def predict(image_paths: list[Path], run_dir: Path):
+    """Single-shot: classify a fixed list of images and exit."""
+    model, class_names, threshold, device = load_model(run_dir)
+    _print_header(run_dir, class_names, threshold, device)
 
     for img_path in image_paths:
         if not img_path.exists():
             print(f"  {img_path.name:50s}  NOT FOUND")
             continue
-
         class_name, confidence, uncertain = predict_image(
             model, img_path, class_names, threshold, device)
+        print(_format_result(img_path, class_name, confidence, uncertain))
 
-        flag = "  ⚠ uncertain" if uncertain else ""
-        print(f"  {img_path.name:50s}  {class_name:25s}  {confidence:.1%}{flag}")
+
+def watch(watch_dir: Path, interval: float, run_dir: Path):
+    """Watch mode: poll a directory every `interval` seconds, classify new PNGs."""
+    model, class_names, threshold, device = load_model(run_dir)
+    _print_header(run_dir, class_names, threshold, device)
+
+    print(f"Watching : {watch_dir}  (every {interval}s)  — Ctrl+C to stop\n")
+
+    seen = set(watch_dir.glob("*.png"))  # don't re-process files already present
+
+    try:
+        while True:
+            time.sleep(interval)
+            current = set(watch_dir.glob("*.png"))
+            new_files = sorted(current - seen)
+            for img_path in new_files:
+                class_name, confidence, uncertain = predict_image(
+                    model, img_path, class_names, threshold, device)
+                ts = datetime.now().strftime("%H:%M:%S")
+                print(f"[{ts}] {_format_result(img_path, class_name, confidence, uncertain)}")
+            seen = current
+    except KeyboardInterrupt:
+        print("\nStopped.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Classify seismic spectrogram images with ATLAS-ML")
+
+    # Single-shot mode
     parser.add_argument(
-        "images", nargs="+", type=Path,
-        help="One or more spectrogram PNG files to classify")
+        "images", nargs="*", type=Path,
+        help="One or more spectrogram PNG files to classify (single-shot mode)")
+
+    # Watch mode
+    parser.add_argument(
+        "--watch", type=Path, default=None, metavar="DIR",
+        help="Directory to monitor for new PNG files (watch mode)")
+    parser.add_argument(
+        "--interval", type=float, default=10.0, metavar="SECONDS",
+        help="Poll interval in seconds for watch mode (default: 10)")
+
     parser.add_argument(
         "--model", type=Path, default=None,
         help="Path to a training run directory (default: latest run)")
-    args = parser.parse_args()
 
+    args = parser.parse_args()
     run_dir = args.model if args.model else find_latest_run()
-    predict(args.images, run_dir)
+
+    if args.watch:
+        if not args.watch.is_dir():
+            print(f"Watch directory not found: {args.watch}")
+            sys.exit(1)
+        watch(args.watch, args.interval, run_dir)
+    elif args.images:
+        predict(args.images, run_dir)
+    else:
+        parser.print_help()
