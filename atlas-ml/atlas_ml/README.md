@@ -14,7 +14,7 @@ atlas-ml/
     ├── config.py     # Class taxonomy, dataset mappings, hyperparameters, paths
     ├── dataset.py    # Assembles combined training dataset
     ├── train.py      # Two-phase EfficientNet-B0 training pipeline
-    └── predict.py    # Inference — classify one or more spectrogram images
+    └── predict.py    # Inference — single-shot or streaming watch mode
 ```
 
 ---
@@ -34,8 +34,11 @@ python -m atlas_ml.dataset
 # 4. Train
 python -m atlas_ml.train
 
-# 5. Classify an image
+# 5. Classify an image (single-shot)
 python -m atlas_ml.predict path/to/spectrogram.png
+
+# 5b. Or watch a directory for incoming images (streaming)
+python -m atlas_ml.predict --watch inbox/ --interval 10
 ```
 
 ---
@@ -121,29 +124,53 @@ python -m atlas_ml.train --data path/to/custom/dataset
 
 ### `predict.py`
 
-Loads `best_model.pt` from a training run and classifies one or more spectrogram PNG images.
+Loads `best_model.pt` from a training run and classifies spectrogram PNG images. Supports two modes:
 
-**Usage:**
+#### Single-shot mode
+
+Classifies a fixed list of images and exits.
+
 ```bash
-# Classify a single image (uses the most recent training run automatically)
 python -m atlas_ml.predict path/to/spectrogram.png
-
-# Classify multiple images
 python -m atlas_ml.predict image1.png image2.png image3.png
-
-# Use a specific training run
 python -m atlas_ml.predict image.png --model runs/atlas_ml_20260302_142439
 ```
 
 **Output:**
 ```
-Model   : atlas_ml_20260302_142439  (val acc 91.3%)
-Device  : mps
-Classes : seismic_event, seismic_noise, mechanical_noise, environmental_noise, impulsive_noise
+Model    : atlas_ml_20260302_142439  (val acc 91.3%)
+Device   : mps
+Classes  : seismic_event, seismic_noise, mechanical_noise, environmental_noise, impulsive_noise
 Threshold: 60%  (below → uncertain)
 
-  bucket1001$529,:3,:6000.png    seismic_event      93.0%
+  bucket1001$529,:3,:6000.png    seismic_event        93.0%
   rain_sample.png                environmental_noise  55.1%  ⚠ uncertain
+```
+
+#### Watch mode
+
+Monitors a directory at a regular interval and classifies each new PNG that appears. Files already present when the watcher starts are not re-processed. Press Ctrl+C to stop.
+
+```bash
+# Poll every 10 seconds (default)
+python -m atlas_ml.predict --watch inbox/
+
+# Custom interval
+python -m atlas_ml.predict --watch inbox/ --interval 30
+
+# Specific model run
+python -m atlas_ml.predict --watch inbox/ --interval 5 --model runs/atlas_ml_20260302_142439
+```
+
+**Output:**
+```
+Model    : atlas_ml_20260302_142439  (val acc 91.3%)
+...
+Watching : inbox/  (every 10s)  — Ctrl+C to stop
+
+[14:03:21]   event_001.png    seismic_event        91.2%
+[14:03:31]   noise_042.png    mechanical_noise     87.5%
+[14:03:31]   event_002.png    seismic_noise        55.3%  ⚠ uncertain
 ```
 
 Predictions below the confidence threshold are flagged with `⚠ uncertain`. The threshold is read from `model_meta.json` in the run directory (set in `config.py` before training).
