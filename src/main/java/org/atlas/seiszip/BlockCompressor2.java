@@ -7,7 +7,7 @@ package org.atlas.seiszip;
  * @author  Dave Diller and Richard Foy, ported to Java by Jed Diller.
  */
 
-public class BlockCompressor2 {
+public class BlockCompressor2 implements AutoCloseable {
 
   private static final boolean c_verbose1 = false;
 
@@ -283,6 +283,7 @@ public class BlockCompressor2 {
   }
 
 
+  /*
   // This method is called when this object is garbage collected.
   @Override
   protected void finalize() throws Throwable {
@@ -302,8 +303,23 @@ public class BlockCompressor2 {
       super.finalize();
     }
   }
+  */
 
+  @Override
+  public void close() {
 
+    if (c_complainIfNotFreed) {
+      if (!_freed) {
+	System.out.println();
+	System.out.println(this.getClass().getName() + " was not freed");
+	System.out.println();
+      }
+    }
+
+    this.free();
+  }
+
+  
   /**
    * Manually sets the delta value for quantization (ignoring the distortion value).
    * This is so that distortion does not vary from frame to frame.

@@ -5,7 +5,7 @@ package org.atlas.seiszip;
  * This class does Huffman coding/decoding.
  */
 
-public class HuffCoder2 {
+public class HuffCoder2 implements AutoCloseable {
 
   private static int c_printCounter = 0;
 
@@ -335,6 +335,7 @@ public class HuffCoder2 {
   }
 
 
+  /*
   // This method is called when this object is garbage collected.
   @Override
   protected void finalize() throws Throwable {
@@ -354,7 +355,23 @@ public class HuffCoder2 {
     }
 
   }
+  */
+
   
+  @Override
+  public void close() {
+
+    if (BlockCompressor2.c_complainIfNotFreed) {
+      if (!_freed) {
+	System.out.println();
+	System.out.println(this.getClass().getName() + " was not freed");
+	System.out.println();
+      }
+    }
+
+    this.free();
+  }
+
 
   /**
    * Returns a checksum for debugging.
