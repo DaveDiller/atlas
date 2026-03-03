@@ -60,7 +60,7 @@ def find_latest_run() -> Path:
     return runs[-1]
 
 
-def load_model(run_dir: Path):
+def load_model(run_dir: Path, device: torch.device = None):
     """Load model weights and metadata from a run directory."""
     meta_path  = run_dir / "model_meta.json"
     model_path = run_dir / "best_model.pt"
@@ -76,7 +76,8 @@ def load_model(run_dir: Path):
     class_names = meta["class_names"]
     threshold   = meta.get("confidence_threshold", 0.6)
 
-    device = get_device()
+    if device is None:
+        device = get_device()
     model = timm.create_model("efficientnet_b0", pretrained=False,
                               num_classes=len(class_names))
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -116,9 +117,9 @@ def _format_result(img_path: Path, class_name, confidence, uncertain) -> str:
     return f"  {img_path.name:50s}  {class_name:25s}  {confidence:.1%}{flag}"
 
 
-def predict(image_paths: list[Path], run_dir: Path):
+def predict(image_paths: list[Path], run_dir: Path, device: torch.device = None):
     """Single-shot: classify a fixed list of images and exit."""
-    model, class_names, threshold, device = load_model(run_dir)
+    model, class_names, threshold, device = load_model(run_dir, device)
     _print_header(run_dir, class_names, threshold, device)
 
     for img_path in image_paths:
@@ -130,9 +131,9 @@ def predict(image_paths: list[Path], run_dir: Path):
         print(_format_result(img_path, class_name, confidence, uncertain))
 
 
-def watch(watch_dir: Path, interval: float, run_dir: Path):
+def watch(watch_dir: Path, interval: float, run_dir: Path, device: torch.device = None):
     """Watch mode: poll a directory every `interval` seconds, classify new PNGs."""
-    model, class_names, threshold, device = load_model(run_dir)
+    model, class_names, threshold, device = load_model(run_dir, device)
     _print_header(run_dir, class_names, threshold, device)
 
     print(f"Watching : {watch_dir}  (every {interval}s)  — Ctrl+C to stop\n")
@@ -174,16 +175,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model", type=Path, default=None,
         help="Path to a training run directory (default: latest run)")
+    parser.add_argument(
+        "--device", type=str, default=None, choices=["cpu", "mps", "cuda"],
+        help="Device to run inference on (default: auto-detect)")
 
     args = parser.parse_args()
     run_dir = args.model if args.model else find_latest_run()
+    device  = torch.device(args.device) if args.device else None
 
     if args.watch:
         if not args.watch.is_dir():
             print(f"Watch directory not found: {args.watch}")
             sys.exit(1)
-        watch(args.watch, args.interval, run_dir)
+        watch(args.watch, args.interval, run_dir, device)
     elif args.images:
-        predict(args.images, run_dir)
+        predict(args.images, run_dir, device)
     else:
         parser.print_help()
