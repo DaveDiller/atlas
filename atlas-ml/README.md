@@ -166,6 +166,32 @@ The following decisions need to be resolved before or during implementation:
 
 ---
 
+## Demo
+
+An interactive beat-by-beat demo script is included for walking a non-technical audience through the full pipeline. It opens images, runs live inference, and explains results at each step — press ENTER to advance.
+
+**Setup (one-time, after training):**
+```bash
+python generate_demo_previews.py   # generates labeled preview images
+python generate_demo_composite.py  # generates 2×2 composite reference image
+```
+
+**Run:**
+```bash
+./demo.sh
+```
+
+The demo covers five beats:
+1. **The Problem** — shows a 2×2 reference image of all four signal classes (seismic event, seismic noise, mechanical noise, environmental noise)
+2. **What We Built** — repo structure and pipeline overview
+3. **Model Results** — test accuracy, per-class F1 scores, training curve, confusion matrix
+4. **Live Inference** — single-shot classification of four example signals, then watch mode with files dropped into an inbox directory in real time
+5. **What's Next** — known limitations and open questions for deployment
+
+See [atlas_ml/README.md](atlas_ml/README.md) for the full developer reference.
+
+---
+
 ## Relationship to the Rest of ATLAS
 
 ATLAS-ML is one component of the broader ATLAS system. Other components (managed separately) may include data acquisition, compression (see `seiszip`), visualisation, and reporting. ATLAS-ML is designed to be loosely coupled — it consumes image files from a watched directory and writes classifications and metadata to an output directory, with no hard dependency on the rest of the stack.

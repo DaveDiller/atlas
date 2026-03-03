@@ -10,6 +10,9 @@ This package contains the ATLAS-ML training and inference pipeline. For project 
 atlas-ml/
 ├── generate_spectrograms.py        # ESC-50 WAV → spectrogram PNG
 ├── generate_stead_spectrograms.py  # STEAD HDF5 → spectrogram PNG
+├── generate_demo_previews.py       # Labeled preview images for the demo
+├── generate_demo_composite.py      # 2×2 composite reference image for the demo
+├── demo.sh                         # Beat-by-beat interactive demo script
 └── atlas_ml/
     ├── config.py     # Class taxonomy, dataset mappings, hyperparameters, paths
     ├── dataset.py    # Assembles combined training dataset
@@ -39,6 +42,11 @@ python -m atlas_ml.predict path/to/spectrogram.png
 
 # 5b. Or watch a directory for incoming images (streaming)
 python -m atlas_ml.predict --watch inbox/ --interval 10
+
+# 6. Run the interactive demo (after training)
+python generate_demo_previews.py   # generates labeled preview images
+python generate_demo_composite.py  # generates 2×2 composite reference image
+./demo.sh                          # beat-by-beat demo — press ENTER to advance
 ```
 
 ---
@@ -134,6 +142,7 @@ Classifies a fixed list of images and exits.
 python -m atlas_ml.predict path/to/spectrogram.png
 python -m atlas_ml.predict image1.png image2.png image3.png
 python -m atlas_ml.predict image.png --model runs/atlas_ml_20260302_142439
+python -m atlas_ml.predict image.png --device cpu   # force CPU (avoids GPU memory conflicts)
 ```
 
 **Output:**
@@ -160,6 +169,9 @@ python -m atlas_ml.predict --watch inbox/ --interval 30
 
 # Specific model run
 python -m atlas_ml.predict --watch inbox/ --interval 5 --model runs/atlas_ml_20260302_142439
+
+# Force CPU (useful if GPU memory is shared with other apps)
+python -m atlas_ml.predict --watch inbox/ --device cpu
 ```
 
 **Output:**
@@ -174,6 +186,15 @@ Watching : inbox/  (every 10s)  — Ctrl+C to stop
 ```
 
 Predictions below the confidence threshold are flagged with `⚠ uncertain`. The threshold is read from `model_meta.json` in the run directory (set in `config.py` before training).
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model PATH` | latest run | Path to a training run directory |
+| `--device cpu\|mps\|cuda` | auto-detect | Force a specific device. Use `--device cpu` if GPU memory conflicts occur (e.g. macOS Preview open while running MPS inference) |
+| `--watch DIR` | — | Directory to monitor (watch mode) |
+| `--interval SECONDS` | 10 | Poll interval for watch mode |
 
 ---
 
@@ -213,6 +234,38 @@ import seisbench.data as sbd
 sbd.STEAD()
 ```
 If a download stalls and leaves `.partial` files, use `sbd.STEAD(force=True)` to restart — SeisBench does not support resuming partial downloads.
+
+---
+
+### `generate_demo_previews.py`  *(top-level, not part of the package)*
+
+Generates labeled spectrogram preview images for the demo — annotated PNGs with axes, titles, and frequency scales for human reading (not CNN inference).
+
+**Usage:**
+```bash
+python generate_demo_previews.py
+```
+
+**Requires:** STEAD HDF5 downloaded, ESC-50 spectrograms generated
+**Output:** `data/demo_previews/*.png` — 6 images:
+- `seismic_event_1.png` / `seismic_event_2.png` — M4.0+ earthquakes from STEAD
+- `seismic_noise_1.png` / `seismic_noise_2.png` — instrument background from STEAD
+- `mechanical_noise_chainsaw.png` — chainsaw from ESC-50
+- `environmental_noise_rain.png` — rain from ESC-50
+
+---
+
+### `generate_demo_composite.py`  *(top-level, not part of the package)*
+
+Generates a single 2×2 composite reference image showing one labeled spectrogram per class. Used in the demo to display all four classes in one window.
+
+**Usage:**
+```bash
+python generate_demo_composite.py
+```
+
+**Requires:** `data/demo_previews/` populated by `generate_demo_previews.py`
+**Output:** `data/demo_previews/atlas_classes_reference.png`
 
 ---
 
