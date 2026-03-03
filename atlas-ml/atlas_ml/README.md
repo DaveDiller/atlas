@@ -17,7 +17,8 @@ atlas-ml/
     ├── config.py     # Class taxonomy, dataset mappings, hyperparameters, paths
     ├── dataset.py    # Assembles combined training dataset
     ├── train.py      # Two-phase EfficientNet-B0 training pipeline
-    └── predict.py    # Inference — single-shot or streaming watch mode
+    ├── predict.py    # Inference — single-shot or streaming watch mode (with routing)
+    └── review.py     # Human review CLI — confirm / correct / reject pending images
 ```
 
 ---
@@ -42,6 +43,13 @@ python -m atlas_ml.predict path/to/spectrogram.png
 
 # 5b. Or watch a directory for incoming images (streaming)
 python -m atlas_ml.predict --watch inbox/ --interval 10
+
+# 5c. Watch mode with routing — moves each classified file to pending/<class>/
+#     and logs to classification_log.csv
+python -m atlas_ml.predict --watch inbox/ --interval 10 --route
+
+# 5d. Review pending images — confirm, correct, or reject one at a time
+python -m atlas_ml.review
 
 # 6. Run the interactive demo (after training)
 python generate_demo_previews.py   # generates labeled preview images
@@ -172,9 +180,12 @@ python -m atlas_ml.predict --watch inbox/ --interval 5 --model runs/atlas_ml_202
 
 # Force CPU (useful if GPU memory is shared with other apps)
 python -m atlas_ml.predict --watch inbox/ --device cpu
+
+# Routing mode — move each file to pending/<class>/ and log to classification_log.csv
+python -m atlas_ml.predict --watch inbox/ --route
 ```
 
-**Output:**
+**Output (without `--route`):**
 ```
 Model    : atlas_ml_20260302_142439  (val acc 91.3%)
 ...
@@ -184,6 +195,14 @@ Watching : inbox/  (every 10s)  — Ctrl+C to stop
 [14:03:31]   noise_042.png    mechanical_noise     87.5%
 [14:03:31]   event_002.png    seismic_noise        55.3%  ⚠ uncertain
 ```
+
+**Output (with `--route`):**
+```
+Watching : inbox/  (every 10s)  — Ctrl+C to stop  [routing ON → pending/]
+
+[14:03:21]   event_001.png    seismic_event        91.2%
+```
+Each classified file is moved to `pending/<predicted_class>/` and a row is written to `classification_log.csv`.
 
 Predictions below the confidence threshold are flagged with `⚠ uncertain`. The threshold is read from `model_meta.json` in the run directory (set in `config.py` before training).
 
@@ -195,6 +214,75 @@ Predictions below the confidence threshold are flagged with `⚠ uncertain`. The
 | `--device cpu\|mps\|cuda` | auto-detect | Force a specific device. Use `--device cpu` if GPU memory conflicts occur (e.g. macOS Preview open while running MPS inference) |
 | `--watch DIR` | — | Directory to monitor (watch mode) |
 | `--interval SECONDS` | 10 | Poll interval for watch mode |
+| `--route` | off | Move classified files to `pending/<class>/` and log to `classification_log.csv` |
+
+---
+
+### `review.py`
+
+Interactive human review CLI. Walks `pending/` one image at a time, opens each image in the system viewer, shows the predicted class and confidence (read from `classification_log.csv`), and prompts for a decision.
+
+**Usage:**
+```bash
+# Review all images in pending/ (default)
+python -m atlas_ml.review
+
+# Custom pending directory
+python -m atlas_ml.review --pending path/to/pending/
+
+# Headless — don't open images (useful over SSH or in CI)
+python -m atlas_ml.review --no-open
+```
+
+**Prompt actions:**
+
+| Key | Action | Destination |
+|-----|--------|-------------|
+| ENTER | Confirm — prediction is correct | `verified/<predicted_class>/` |
+| `c` | Correct — choose the right class from a numbered list | `verified/<chosen_class>/` |
+| `r` | Reject — discard (poor quality, ambiguous, unclassifiable) | `rejected/` |
+| `q` | Quit — stop early, print summary |  |
+
+**Example session:**
+```
+Found 3 image(s) to review in pending/
+
+  ENTER=confirm   c=correct   r=reject   q=quit
+
+[1/3]  event_001.png
+  Predicted : seismic_event  (99.9%)
+  >
+
+[2/3]  mechanical_001.png
+  Predicted : mechanical_noise  (100.0%)
+  > c
+    1  seismic_event
+    2  seismic_noise
+    3  mechanical_noise
+    4  environmental_noise
+    5  impulsive_noise
+  Class number: 4
+
+[3/3]  noise_001.png
+  Predicted : seismic_noise  (99.9%)
+  > r
+
+Reviewed 3 image(s):  1 confirmed  1 corrected  1 rejected
+Verified pool: environmental_noise=1  seismic_event=1
+```
+
+**Directory layout created:**
+```
+verified/
+  seismic_event/
+  seismic_noise/
+  mechanical_noise/
+  environmental_noise/
+  impulsive_noise/
+rejected/
+```
+
+Class names are read from `model_meta.json` in the latest run, falling back to `config.CLASSES`.
 
 ---
 
