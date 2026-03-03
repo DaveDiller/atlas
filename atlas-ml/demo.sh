@@ -4,7 +4,7 @@
 # Run this script, then press ENTER at each prompt to advance to the next beat.
 # =============================================================================
 
-ATLAS_DIR="/Users/edwardyoung/dev/src/ATLAS"
+ATLAS_DIR="/Users/edwardyoung/dev/src/atlas-git/atlas-ml"
 PREVIEWS="$ATLAS_DIR/data/demo_previews"
 INBOX="$ATLAS_DIR/demo_inbox"
 
@@ -106,7 +106,7 @@ say "We trained on 4720 spectrogram images across 5 classes."
 say "Here's how it did on the held-out test set:"
 echo ""
 
-cat /Users/edwardyoung/dev/src/ATLAS/runs/atlas_ml_20260302_142439/results.txt
+cat "$ATLAS_DIR/runs/atlas_ml_20260302_142439/results.txt"
 
 echo ""
 say "The two classes that matter most in a live deployment:"
@@ -117,7 +117,7 @@ echo ""
 say "Opening the training curve..."
 echo ""
 
-open -n /Users/edwardyoung/dev/src/ATLAS/runs/atlas_ml_20260302_142439/history.png
+open -n "$ATLAS_DIR/runs/atlas_ml_20260302_142439/history.png"
 sleep 2
 
 echo ""
@@ -148,7 +148,7 @@ pause
 clear
 banner "Beat 3 of 5 — Model Results (Confusion Matrix)"
 say "Opening the confusion matrix..."
-open -n /Users/edwardyoung/dev/src/ATLAS/runs/atlas_ml_20260302_142439/confusion.png
+open -n "$ATLAS_DIR/runs/atlas_ml_20260302_142439/confusion.png"
 sleep 2
 echo ""
 echo -e "  Reading the confusion matrix:"
