@@ -26,6 +26,16 @@
             <artifactId>commons-math3</artifactId>
             <version>3.6.1</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.sis.core</groupId>
+            <artifactId>sis-referencing</artifactId>
+            <version>1.6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.sis.core</groupId>
+            <artifactId>sis-feature</artifactId>
+            <version>1.6</version>
+        </dependency>
     </dependencies>
 
     <build>
