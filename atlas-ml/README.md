@@ -1,5 +1,9 @@
 # ATLAS-ML: Seismic Event Classification
 
+> [!IMPORTANT]
+> **Prototype status — data pipeline subject to change.**
+> The pipeline documented here was built as a proof-of-concept using STEAD earthquake waveforms and ESC-50 environmental audio as stand-ins for real field data. The production target is **DAS (Distributed Acoustic Sensing)** data, which has a fundamentally different structure (space-time waterfall images rather than single-station frequency-time spectrograms). The class taxonomy, data sources, and spectrogram generation scripts will all change once synthetic DAS training data is available. The ML architecture, human-in-the-loop review process, and continuous retraining design described here remain valid and will carry forward.
+
 **ATLAS-ML** is the machine learning component of the ATLAS (Applied Transforms, Learning & Analysis for Seismology) system. It provides automated classification of seismic signals using convolutional neural networks (CNNs), with a human-in-the-loop review process that allows the model to continuously improve over time.
 
 ---

@@ -1,5 +1,9 @@
 # atlas_ml — Developer Reference
 
+> [!IMPORTANT]
+> **Prototype status — see parent README for context.**
+> The data sources, class taxonomy, and spectrogram generation scripts described here are placeholders built on STEAD and ESC-50. They will be replaced once synthetic DAS training data is available. The training, inference, and review pipeline code is stable and will carry forward with minimal changes.
+
 This package contains the ATLAS-ML training and inference pipeline. For project background, architecture decisions, and user stories see the [parent README](../README.md).
 
 ---
