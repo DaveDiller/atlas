@@ -8,6 +8,11 @@ The pipeline reads from here, so no code changes needed for taxonomy adjustments
 # ---------------------------------------------------------------------------
 # Class taxonomy
 # ---------------------------------------------------------------------------
+# NOTE: This class list is specific to the ESC-50 + STEAD pipeline.
+# It is NOT used when training on other datasets (e.g. DAS Events/NotEvents).
+# In that case, load_dataset() auto-discovers class subdirectories and this
+# list is ignored entirely.
+#
 # These are the 5 classes the CNN will learn to distinguish.
 # Order here determines the integer label assigned to each class.
 CLASSES = [

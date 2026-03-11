@@ -35,15 +35,18 @@ from torchvision import transforms
 
 from .config import IMG_SIZE, INFERENCE_LOG, INFERENCE_PENDING, RUNS_DIR
 
-MEAN = [0.485, 0.456, 0.406]
-STD  = [0.229, 0.224, 0.225]
+# Default normalization for RGB models (original ESC-50/STEAD pipeline)
+_RGB_MEAN = [0.485, 0.456, 0.406]
+_RGB_STD  = [0.229, 0.224, 0.225]
 
-infer_tf = transforms.Compose([
-    transforms.Resize(int(IMG_SIZE * 1.14)),
-    transforms.CenterCrop(IMG_SIZE),
-    transforms.ToTensor(),
-    transforms.Normalize(MEAN, STD),
-])
+
+def _make_infer_transform(img_size: int, mean: list, std: list):
+    return transforms.Compose([
+        transforms.Resize(int(img_size * 1.14)),
+        transforms.CenterCrop(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
 
 
 def get_device():
@@ -55,17 +58,22 @@ def get_device():
 
 
 def find_latest_run() -> Path:
-    """Return the most recently created run directory."""
-    runs = sorted(RUNS_DIR.glob("atlas_ml_*"))
+    """Return the most recently created run directory (any naming convention)."""
+    runs = sorted(RUNS_DIR.glob("atlas_ml_*")) + sorted(RUNS_DIR.glob("das_cnn_*"))
     if not runs:
         print(f"No training runs found in {RUNS_DIR}")
-        print("Train a model first:  python -m atlas_ml.train")
+        print("Train a model first:  python -m atlas_ml.train  or  python -m atlas_ml.train_das")
         sys.exit(1)
-    return runs[-1]
+    return max(runs, key=lambda p: p.stat().st_mtime)
 
 
 def load_model(run_dir: Path, device: torch.device = None):
-    """Load model weights and metadata from a run directory."""
+    """Load model weights and metadata from a run directory.
+
+    Reads in_chans, norm_mean, and norm_std from model_meta.json when present
+    (saved by train_das.py). Falls back to RGB ImageNet defaults for older runs.
+    Returns (model, class_names, threshold, device, transform, in_chans).
+    """
     meta_path  = run_dir / "model_meta.json"
     model_path = run_dir / "best_model.pt"
 
@@ -76,25 +84,34 @@ def load_model(run_dir: Path, device: torch.device = None):
         print(f"best_model.pt not found in {run_dir}")
         sys.exit(1)
 
-    meta = json.loads(meta_path.read_text())
+    meta        = json.loads(meta_path.read_text())
     class_names = meta["class_names"]
     threshold   = meta.get("confidence_threshold", 0.6)
+    # das_cnn_* runs pre-date the in_chans field — default to grayscale for them
+    _das_default = run_dir.name.startswith("das_cnn_")
+    in_chans    = meta.get("in_chans", 1 if _das_default else 3)
+    mean        = meta.get("norm_mean", [0.5] if _das_default else _RGB_MEAN)
+    std         = meta.get("norm_std",  [0.5] if _das_default else _RGB_STD)
+    img_size    = meta.get("img_size",  IMG_SIZE)
 
     if device is None:
         device = get_device()
     model = timm.create_model("efficientnet_b0", pretrained=False,
-                              num_classes=len(class_names))
+                              in_chans=in_chans, num_classes=len(class_names))
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
 
-    return model, class_names, threshold, device
+    transform = _make_infer_transform(img_size, mean, std)
+    return model, class_names, threshold, device, transform, in_chans
 
 
-def predict_image(model, img_path: Path, class_names, threshold, device):
+def predict_image(model, img_path: Path, class_names, threshold, device,
+                  transform, in_chans: int = 3):
     """Return (class_name, confidence, uncertain) for a single image."""
-    img = Image.open(img_path).convert("RGB")
-    tensor = infer_tf(img).unsqueeze(0).to(device)
+    mode = "L" if in_chans == 1 else "RGB"
+    img = Image.open(img_path).convert(mode)
+    tensor = transform(img).unsqueeze(0).to(device)
 
     with torch.no_grad():
         logits = model(tensor)
@@ -110,7 +127,9 @@ def predict_image(model, img_path: Path, class_names, threshold, device):
 
 def _print_header(run_dir, class_names, threshold, device):
     meta = json.loads((run_dir / "model_meta.json").read_text())
-    print(f"Model    : {run_dir.name}  (val acc {meta['val_accuracy']:.1%})")
+    val_acc = meta.get("val_accuracy") or meta.get("best_val_accuracy")
+    acc_str = f"  (val acc {val_acc:.1%})" if val_acc is not None else ""
+    print(f"Model    : {run_dir.name}{acc_str}")
     print(f"Device   : {device}")
     print(f"Classes  : {', '.join(class_names)}")
     print(f"Threshold: {threshold:.0%}  (below → uncertain)\n")
@@ -123,7 +142,7 @@ def _format_result(img_path: Path, class_name, confidence, uncertain) -> str:
 
 def predict(image_paths: list[Path], run_dir: Path, device: torch.device = None):
     """Single-shot: classify a fixed list of images and exit."""
-    model, class_names, threshold, device = load_model(run_dir, device)
+    model, class_names, threshold, device, transform, in_chans = load_model(run_dir, device)
     _print_header(run_dir, class_names, threshold, device)
 
     for img_path in image_paths:
@@ -131,7 +150,7 @@ def predict(image_paths: list[Path], run_dir: Path, device: torch.device = None)
             print(f"  {img_path.name:50s}  NOT FOUND")
             continue
         class_name, confidence, uncertain = predict_image(
-            model, img_path, class_names, threshold, device)
+            model, img_path, class_names, threshold, device, transform, in_chans)
         print(_format_result(img_path, class_name, confidence, uncertain))
 
 
@@ -152,29 +171,39 @@ def _log_classification(img_path: Path, class_name: str, confidence: float, unce
         ])
 
 
+_JPEG_GLOBS = ["*.jpg", "*.jpeg", "*.JPG", "*.JPEG"]
+
+
+def _glob_jpegs(directory: Path) -> set[Path]:
+    files = set()
+    for pattern in _JPEG_GLOBS:
+        files.update(directory.glob(pattern))
+    return files
+
+
 def watch(watch_dir: Path, interval: float, run_dir: Path, device: torch.device = None,
           route: bool = False):
-    """Watch mode: poll a directory every `interval` seconds, classify new PNGs.
+    """Watch mode: poll a directory every `interval` seconds, classify new JPEGs.
 
     When route=True, each classified file is moved to pending/<class>/ and a row
     is appended to classification_log.csv.
     """
-    model, class_names, threshold, device = load_model(run_dir, device)
+    model, class_names, threshold, device, transform, in_chans = load_model(run_dir, device)
     _print_header(run_dir, class_names, threshold, device)
 
     route_note = "  [routing ON → pending/]" if route else ""
     print(f"Watching : {watch_dir}  (every {interval}s)  — Ctrl+C to stop{route_note}\n")
 
-    seen = set(watch_dir.glob("*.png"))  # don't re-process files already present
+    seen = _glob_jpegs(watch_dir)  # don't re-process files already present
 
     try:
         while True:
             time.sleep(interval)
-            current = set(watch_dir.glob("*.png"))
+            current = _glob_jpegs(watch_dir)
             new_files = sorted(current - seen)
             for img_path in new_files:
                 class_name, confidence, uncertain = predict_image(
-                    model, img_path, class_names, threshold, device)
+                    model, img_path, class_names, threshold, device, transform, in_chans)
                 ts = datetime.now().strftime("%H:%M:%S")
                 print(f"[{ts}] {_format_result(img_path, class_name, confidence, uncertain)}")
 

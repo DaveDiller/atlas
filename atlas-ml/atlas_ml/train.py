@@ -53,16 +53,30 @@ def get_device():
 # Dataset
 # ---------------------------------------------------------------------------
 def load_dataset(data_dir: Path):
-    """Scan class subdirectories, return paths + integer labels + class names."""
-    # Use canonical class order from config, only include dirs that exist
-    class_names = [c for c in CLASSES if (data_dir / c).exists()]
+    """Scan class subdirectories, return paths + integer labels + class names.
+
+    Class discovery: uses the canonical CLASSES order when those directories
+    exist; otherwise auto-discovers all subdirectories (sorted) so the loader
+    works with any labelled image dataset, e.g. Events/NotEvents.
+
+    Image formats: PNG, JPEG, JPG.
+    """
+    configured = [c for c in CLASSES if (data_dir / c).exists()]
+    if configured:
+        class_names = configured
+    else:
+        class_names = sorted(p.name for p in data_dir.iterdir() if p.is_dir())
+
     class_to_idx = {c: i for i, c in enumerate(class_names)}
+
+    IMAGE_GLOBS = ["*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG"]
 
     paths, labels = [], []
     for cls in class_names:
-        for img_path in (data_dir / cls).glob("*.png"):
-            paths.append(img_path)
-            labels.append(class_to_idx[cls])
+        for pattern in IMAGE_GLOBS:
+            for img_path in (data_dir / cls).glob(pattern):
+                paths.append(img_path)
+                labels.append(class_to_idx[cls])
 
     return paths, labels, class_names
 
