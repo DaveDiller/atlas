@@ -7,11 +7,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse
+from typing import List
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .data_stats import count_class_images
+from .kasa_monitor import KasaMonitor
 from .run_manager import TrainingManager, stream_logs
 from .run_reader import list_runs
 
@@ -28,9 +30,6 @@ _CONFIG_FILE = _HERE / "dashboard_config.json"
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
-
-manager = TrainingManager(atlas_ml_dir=_ATLAS_ML_DIR, runs_dir=_RUNS_DIR)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -63,6 +62,13 @@ def _save_config(data: dict):
         pass
 
 
+manager = TrainingManager(
+    atlas_ml_dir=_ATLAS_ML_DIR,
+    runs_dir=_RUNS_DIR,
+    kasa_plugs=_load_config().get("kasa_plugs", {}),
+)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -72,7 +78,7 @@ async def index(request: Request):
     cfg = _load_config()
     data_dir = cfg.get("data_dir", _DEFAULT_DATA_DIR)
     runs = await asyncio.to_thread(list_runs, _RUNS_DIR)
-    counts = await asyncio.to_thread(count_class_images, Path(data_dir))
+    counts = await asyncio.to_thread(count_class_images, Path(data_dir)) if data_dir else {}
     status = manager.status()
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -80,7 +86,22 @@ async def index(request: Request):
         "counts": counts,
         "data_dir": data_dir,
         "status": status,
+        "kasa_plugs": cfg.get("kasa_plugs", {}),
     })
+
+
+@app.post("/api/kasa/save")
+async def kasa_save(
+    label: List[str] = Form(default=[]),
+    ip: List[str] = Form(default=[]),
+):
+    plugs = {l.strip(): i.strip() for l, i in zip(label, ip) if l.strip() and i.strip()}
+    cfg = _load_config()
+    cfg["kasa_plugs"] = plugs
+    _save_config(cfg)
+    # Update manager with new plugs (takes effect on next training run)
+    manager._kasa = KasaMonitor(plugs)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/api/data-stats", response_class=HTMLResponse)

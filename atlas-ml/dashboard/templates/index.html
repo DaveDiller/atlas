@@ -61,6 +61,51 @@
 
 </div>
 
+<!-- ── Kasa plug configuration ─────────────────────────────────────────── -->
+<div class="card mb-3">
+  <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+    <span>Power Meters (Kasa)</span>
+    <button class="btn btn-sm btn-outline-secondary"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#kasa-config">
+      Configure
+    </button>
+  </div>
+  <div class="collapse" id="kasa-config">
+    <div class="card-body">
+      <p class="text-muted small mb-2">
+        Enter the local IP address of each TP-Link Kasa EP25 plug.
+        Label is any name you choose (e.g. "marlin", "nas").
+        Restart the dashboard after saving.
+      </p>
+      <form action="/api/kasa/save" method="post" id="kasa-form">
+        <div id="kasa-plug-list">
+          {% for label, ip in kasa_plugs.items() %}
+          <div class="row g-2 mb-2 kasa-plug-row">
+            <div class="col-4">
+              <input type="text" class="form-control form-control-sm font-monospace"
+                     name="label" placeholder="label" value="{{ label }}">
+            </div>
+            <div class="col-5">
+              <input type="text" class="form-control form-control-sm font-monospace"
+                     name="ip" placeholder="192.168.1.x" value="{{ ip }}">
+            </div>
+            <div class="col-3">
+              <button type="button" class="btn btn-sm btn-outline-danger"
+                      onclick="this.closest('.kasa-plug-row').remove()">Remove</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary me-2"
+                onclick="addKasaRow()">+ Add plug</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- ── Log viewer ───────────────────────────────────────────────────────── -->
 <div class="card mb-3">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -91,6 +136,26 @@
 </div>
 
 <!-- Auto-scroll log to bottom on new content -->
+<script>
+  function addKasaRow() {
+    const row = document.createElement("div");
+    row.className = "row g-2 mb-2 kasa-plug-row";
+    row.innerHTML = `
+      <div class="col-4">
+        <input type="text" class="form-control form-control-sm font-monospace"
+               name="label" placeholder="label">
+      </div>
+      <div class="col-5">
+        <input type="text" class="form-control form-control-sm font-monospace"
+               name="ip" placeholder="192.168.1.x">
+      </div>
+      <div class="col-3">
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                onclick="this.closest('.kasa-plug-row').remove()">Remove</button>
+      </div>`;
+    document.getElementById("kasa-plug-list").appendChild(row);
+  }
+</script>
 <script>
   document.body.addEventListener("htmx:sseMessage", function () {
     const box = document.getElementById("log-box");

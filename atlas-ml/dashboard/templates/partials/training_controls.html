@@ -16,8 +16,11 @@
       </span>
       <span class="text-muted small">{{ status.elapsed }}</span>
       {% if status.current_power_w is not none %}
-        <span class="text-muted small">⚡ {{ "%.0f"|format(status.current_power_w) }}W</span>
+        <span class="text-muted small">⚡ GPU: {{ "%.0f"|format(status.current_power_w) }}W</span>
       {% endif %}
+      {% for label, watts in status.kasa_watts.items() %}
+        <span class="text-muted small">⚡ {{ label }}: {{ "%.0f"|format(watts) }}W</span>
+      {% endfor %}
       <span class="text-muted small text-truncate" style="max-width:300px">
         {{ status.data_dir }}
       </span>

@@ -11,6 +11,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+from .kasa_monitor import KasaMonitor
+
 # Sample GPU power every N seconds during training
 _POWER_SAMPLE_INTERVAL = 5.0
 
@@ -33,7 +35,8 @@ def _sample_gpu_power_watts() -> Optional[float]:
 
 class TrainingManager:
 
-    def __init__(self, atlas_ml_dir: Path, runs_dir: Path):
+    def __init__(self, atlas_ml_dir: Path, runs_dir: Path,
+                 kasa_plugs: Optional[dict] = None):
         self._atlas_ml_dir = atlas_ml_dir
         self._runs_dir = runs_dir
         self._process: Optional[subprocess.Popen] = None
@@ -45,7 +48,8 @@ class TrainingManager:
         self._data_dir: Optional[str] = None
         self._last_run_name: Optional[str] = None
         self._terminated: bool = False
-        self._power_samples: list[float] = []   # watts, sampled every interval
+        self._power_samples: list[float] = []   # GPU watts, sampled every interval
+        self._kasa = KasaMonitor(kasa_plugs or {})
         self._lock = threading.Lock()
 
     # -------------------------------------------------------------------------
@@ -87,6 +91,9 @@ class TrainingManager:
                 target=self._sample_power, daemon=True)
             self._power_thread.start()
 
+            if self._kasa.available:
+                self._kasa.start()
+
             return True
 
     def is_running(self) -> bool:
@@ -100,8 +107,8 @@ class TrainingManager:
             secs = int(end - self._start_time)
             elapsed = f"{secs // 60}m {secs % 60}s"
 
-        # Current power draw for display while running
-        current_power = self._power_samples[-1] if self._power_samples else None
+        current_gpu_w = self._power_samples[-1] if self._power_samples else None
+        kasa_watts = self._kasa.current_watts() if self._kasa.available else {}
 
         return {
             "running": running,
@@ -110,7 +117,8 @@ class TrainingManager:
             "data_dir": self._data_dir,
             "last_run_name": self._last_run_name,
             "return_code": self._process.returncode if self._process else None,
-            "current_power_w": current_power,
+            "current_power_w": current_gpu_w,
+            "kasa_watts": kasa_watts,
         }
 
     def log_lines(self, from_index: int) -> tuple[list[str], int]:
@@ -141,12 +149,18 @@ class TrainingManager:
             self._write_sidecar()
 
     def _sample_power(self):
-        """Background thread: poll nvidia-smi every interval while training runs."""
+        """Background thread: poll nvidia-smi and Kasa plugs while training runs."""
+        loop = asyncio.new_event_loop()
         while self.is_running():
             w = _sample_gpu_power_watts()
             if w is not None:
                 self._power_samples.append(w)
+            if self._kasa.available:
+                loop.run_until_complete(self._kasa.poll_once())
             time.sleep(_POWER_SAMPLE_INTERVAL)
+        loop.close()
+        if self._kasa.available:
+            self._kasa.stop()
 
     def _energy_wh(self) -> Optional[float]:
         """Calculate watt-hours from power samples and elapsed time."""
@@ -175,6 +189,9 @@ class TrainingManager:
                 data["gpu_avg_power_w"] = round(
                     sum(self._power_samples) / len(self._power_samples), 1)
                 data["gpu_power_samples"] = len(self._power_samples)
+            kasa_summary = self._kasa.energy_summary()
+            if kasa_summary:
+                data["kasa_energy"] = kasa_summary
             sidecar.write_text(json.dumps(data, indent=2))
         except Exception:
             pass
