@@ -13,7 +13,8 @@
             <th>Run</th>
             <th>Date</th>
             <th>Model</th>
-            <th>Accuracy</th>
+            <th>Val Acc</th>
+            <th>Blind Acc</th>
             <th>Epochs</th>
             <th>Time</th>
             <th class="d-none d-md-table-cell">Data</th>
@@ -38,6 +39,13 @@
               {% if run.accuracy is not none %}
                 <span class="fw-bold {% if run.accuracy >= 0.95 %}text-success{% elif run.accuracy >= 0.85 %}text-warning{% else %}text-danger{% endif %}">
                   {{ "%.1f%%"|format(run.accuracy * 100) }}
+                </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if run.blind_accuracy is not none %}
+                <span class="fw-bold {% if run.blind_accuracy >= 0.95 %}text-success{% elif run.blind_accuracy >= 0.85 %}text-warning{% else %}text-danger{% endif %}">
+                  {{ "%.1f%%"|format(run.blind_accuracy * 100) }}
                 </span>
               {% else %}—{% endif %}
             </td>

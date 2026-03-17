@@ -8,6 +8,7 @@ import json
 import re
 
 _RUN_NAME_RE = re.compile(r"(\d{8}_\d{6})$")
+_ACCURACY_RE = re.compile(r"accuracy\s+([\d.]+)")
 
 
 @dataclass
@@ -15,11 +16,26 @@ class RunInfo:
     name: str
     started_at: Optional[datetime]
     accuracy: Optional[float]
+    blind_accuracy: Optional[float]
     epochs: Optional[int]
     model: Optional[str]
     trained_on: Optional[str]
     training_time: Optional[str]
     is_best: bool = False
+
+
+def _parse_blind_accuracy(run_dir: Path) -> Optional[float]:
+    results_file = run_dir / "blind_test_results.txt"
+    if not results_file.exists():
+        return None
+    try:
+        text = results_file.read_text()
+        m = _ACCURACY_RE.search(text)
+        if m:
+            return float(m.group(1))
+    except Exception:
+        pass
+    return None
 
 
 def _parse_run(run_dir: Path) -> Optional[RunInfo]:
@@ -39,6 +55,7 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
             name=run_dir.name,
             started_at=started_at,
             accuracy=None,
+            blind_accuracy=None,
             epochs=None,
             model=None,
             trained_on=None,
@@ -83,6 +100,7 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
         name=run_dir.name,
         started_at=started_at,
         accuracy=accuracy,
+        blind_accuracy=_parse_blind_accuracy(run_dir),
         epochs=epochs,
         model=meta.get("model"),
         trained_on=meta.get("trained_on"),
