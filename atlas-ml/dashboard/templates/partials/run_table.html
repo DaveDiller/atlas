@@ -1,0 +1,56 @@
+<div id="run-table"
+     hx-get="/api/runs"
+     hx-trigger="every 30s"
+     hx-swap="outerHTML">
+
+  {% if not runs %}
+    <p class="text-muted">No training runs found.</p>
+  {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>Run</th>
+            <th>Date</th>
+            <th>Model</th>
+            <th>Accuracy</th>
+            <th>Epochs</th>
+            <th>Time</th>
+            <th class="d-none d-md-table-cell">Data</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr class="{% if run.is_best %}table-success{% endif %}">
+            <td class="font-monospace small">
+              {{ run.name }}
+              {% if run.is_best %}
+                <span class="badge bg-success ms-1">best</span>
+              {% endif %}
+            </td>
+            <td class="small text-nowrap">
+              {% if run.started_at %}
+                {{ run.started_at.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="small">{{ run.model or '—' }}</td>
+            <td>
+              {% if run.accuracy is not none %}
+                <span class="fw-bold {% if run.accuracy >= 0.95 %}text-success{% elif run.accuracy >= 0.85 %}text-warning{% else %}text-danger{% endif %}">
+                  {{ "%.1f%%"|format(run.accuracy * 100) }}
+                </span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="small">{{ run.epochs or '—' }}</td>
+            <td class="small text-nowrap">{{ run.training_time or '—' }}</td>
+            <td class="small text-muted text-truncate d-none d-md-table-cell" style="max-width:200px">
+              {{ run.trained_on or '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+</div>

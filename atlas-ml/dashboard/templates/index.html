@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- ── Top row: Data + Controls ────────────────────────────────────────── -->
+<div class="row g-3 mb-3">
+
+  <!-- Data directory + stats -->
+  <div class="col-12 col-md-7">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Training Data</div>
+      <div class="card-body">
+
+        <form hx-post="/api/run/start"
+              hx-target="#training-controls"
+              hx-swap="outerHTML">
+
+          <div class="mb-3">
+            <label for="data-dir-input" class="form-label">Data directory</label>
+            <input type="text"
+                   id="data-dir-input"
+                   name="data_dir"
+                   class="form-control font-monospace"
+                   value="{{ data_dir }}"
+                   required
+                   hx-get="/api/data-stats"
+                   hx-trigger="change delay:400ms"
+                   hx-target="#data-stats-panel"
+                   hx-include="[name='data_dir']"
+                   hx-params="path"
+                   hx-vals='js:{"path": document.getElementById("data-dir-input").value}'>
+            <div class="form-text">Directory with Events/ and NotEvents/ subdirectories</div>
+          </div>
+
+          <!-- Image counts -->
+          <div id="data-stats-panel" class="mb-3">
+            {% include "partials/data_stats.html" %}
+          </div>
+
+          <!-- Start button -->
+          <button type="submit"
+                  class="btn btn-primary {% if status.running %}disabled{% endif %}"
+                  {% if status.running %}aria-disabled="true"{% endif %}>
+            {% if status.running %}Training…{% else %}Start Training{% endif %}
+          </button>
+
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training status -->
+  <div class="col-12 col-md-5">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Status</div>
+      <div class="card-body">
+        {% include "partials/training_controls.html" %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Log viewer ───────────────────────────────────────────────────────── -->
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">Training Log</span>
+    <button class="btn btn-sm btn-outline-secondary"
+            onclick="document.getElementById('log-box').innerHTML=''">
+      Clear
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <div id="log-container"
+         hx-ext="sse"
+         sse-connect="/api/run/logs/stream"
+         sse-swap="message"
+         hx-swap="beforeend"
+         hx-target="#log-box">
+      <pre id="log-box" class="log-box mb-0"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ── Run history ──────────────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header fw-semibold">Training Runs</div>
+  <div class="card-body p-0 p-md-2">
+    {% include "partials/run_table.html" %}
+  </div>
+</div>
+
+<!-- Auto-scroll log to bottom on new content -->
+<script>
+  document.body.addEventListener("htmx:sseMessage", function () {
+    const box = document.getElementById("log-box");
+    if (box) box.scrollTop = box.scrollHeight;
+  });
+
+</script>
+
+{% endblock %}

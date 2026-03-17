@@ -1,0 +1,38 @@
+<div id="training-controls"
+     hx-get="/api/run/status"
+     hx-trigger="every 3s"
+     hx-swap="outerHTML"
+>
+
+  {% if message %}
+    <div class="alert alert-warning py-2">{{ message }}</div>
+  {% endif %}
+
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+
+    {% if status.running %}
+      <span class="badge bg-warning text-dark fs-6">
+        ⏳ Training in progress
+      </span>
+      <span class="text-muted small">{{ status.elapsed }}</span>
+      <span class="text-muted small text-truncate" style="max-width:300px">
+        {{ status.data_dir }}
+      </span>
+      <a href="/api/run/stop" class="btn btn-sm btn-outline-danger"
+         hx-get="/api/run/stop" hx-target="#training-controls" hx-swap="outerHTML">
+        Stop
+      </a>
+    {% elif status.terminated %}
+      <span class="badge bg-warning text-dark fs-6">⚠ Terminated</span>
+      {% if status.elapsed %}
+        <span class="text-muted small">after {{ status.elapsed }}</span>
+      {% endif %}
+    {% else %}
+      <span class="badge bg-success fs-6">● Ready</span>
+      {% if status.last_run_name %}
+        <span class="text-muted small">Last: {{ status.last_run_name }}</span>
+      {% endif %}
+    {% endif %}
+
+  </div>
+</div>
