@@ -21,6 +21,8 @@ class RunInfo:
     model: Optional[str]
     trained_on: Optional[str]
     training_time: Optional[str]
+    gpu_energy_wh: Optional[float]
+    gpu_avg_power_w: Optional[float]
     is_best: bool = False
 
 
@@ -60,6 +62,8 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
             model=None,
             trained_on=None,
             training_time=None,
+            gpu_energy_wh=None,
+            gpu_avg_power_w=None,
         )
 
     try:
@@ -74,8 +78,10 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
     p2 = meta.get("p2_epochs", 0) or 0
     epochs = (p1 + p2) if (p1 or p2) else meta.get("epochs")
 
-    # Estimate training time from dashboard sidecar if present, else mtime delta
+    # Load dashboard sidecar for timing and energy data
     training_time = None
+    gpu_energy_wh = None
+    gpu_avg_power_w = None
     sidecar = run_dir / "dashboard_meta.json"
     if sidecar.exists():
         try:
@@ -85,6 +91,8 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
             if start and end:
                 secs = int(end - start)
                 training_time = f"{secs // 60}m {secs % 60}s"
+            gpu_energy_wh = dm.get("gpu_energy_wh")
+            gpu_avg_power_w = dm.get("gpu_avg_power_w")
         except Exception:
             pass
 
@@ -105,6 +113,8 @@ def _parse_run(run_dir: Path) -> Optional[RunInfo]:
         model=meta.get("model"),
         trained_on=meta.get("trained_on"),
         training_time=training_time,
+        gpu_energy_wh=gpu_energy_wh,
+        gpu_avg_power_w=gpu_avg_power_w,
     )
 
 

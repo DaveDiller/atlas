@@ -2,29 +2,50 @@
 
 import asyncio
 import json
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Sample GPU power every N seconds during training
+_POWER_SAMPLE_INTERVAL = 5.0
+
+
+def _sample_gpu_power_watts() -> Optional[float]:
+    """Query instantaneous GPU power draw via nvidia-smi. Returns None if unavailable."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=power.draw", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            return float(result.stdout.strip().split("\n")[0])
+    except Exception:
+        pass
+    return None
 
 
 class TrainingManager:
 
     def __init__(self, atlas_ml_dir: Path, runs_dir: Path):
-        self._atlas_ml_dir = atlas_ml_dir  # parent of atlas_ml package
+        self._atlas_ml_dir = atlas_ml_dir
         self._runs_dir = runs_dir
         self._process: Optional[subprocess.Popen] = None
         self._log_buffer: deque[str] = deque(maxlen=2000)
         self._reader_thread: Optional[threading.Thread] = None
+        self._power_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
         self._end_time: Optional[float] = None
         self._data_dir: Optional[str] = None
         self._last_run_name: Optional[str] = None
         self._terminated: bool = False
+        self._power_samples: list[float] = []   # watts, sampled every interval
         self._lock = threading.Lock()
 
     # -------------------------------------------------------------------------
@@ -43,6 +64,7 @@ class TrainingManager:
             self._data_dir = data_dir
             self._last_run_name = None
             self._terminated = False
+            self._power_samples = []
 
             cmd = [
                 sys.executable, "-m", "atlas_ml.train_das",
@@ -58,10 +80,13 @@ class TrainingManager:
             )
 
             self._reader_thread = threading.Thread(
-                target=self._read_output,
-                daemon=True,
-            )
+                target=self._read_output, daemon=True)
             self._reader_thread.start()
+
+            self._power_thread = threading.Thread(
+                target=self._sample_power, daemon=True)
+            self._power_thread.start()
+
             return True
 
     def is_running(self) -> bool:
@@ -74,6 +99,10 @@ class TrainingManager:
             end = self._end_time or time.time()
             secs = int(end - self._start_time)
             elapsed = f"{secs // 60}m {secs % 60}s"
+
+        # Current power draw for display while running
+        current_power = self._power_samples[-1] if self._power_samples else None
+
         return {
             "running": running,
             "terminated": self._terminated,
@@ -81,13 +110,12 @@ class TrainingManager:
             "data_dir": self._data_dir,
             "last_run_name": self._last_run_name,
             "return_code": self._process.returncode if self._process else None,
+            "current_power_w": current_power,
         }
 
     def log_lines(self, from_index: int) -> tuple[list[str], int]:
-        """Return new log lines since from_index and the new cursor position."""
         buf = list(self._log_buffer)
-        new_lines = buf[from_index:]
-        return new_lines, len(buf)
+        return buf[from_index:], len(buf)
 
     def stop(self):
         if self._process and self._process.poll() is None:
@@ -103,7 +131,6 @@ class TrainingManager:
             for line in self._process.stdout:
                 line = line.rstrip()
                 self._log_buffer.append(line)
-                # Detect run name from "Saved to: .../runs/das_cnn_YYYYMMDD_HHMMSS"
                 if "Saved to:" in line:
                     parts = line.split("Saved to:")
                     if len(parts) > 1:
@@ -113,29 +140,48 @@ class TrainingManager:
             self._end_time = time.time()
             self._write_sidecar()
 
+    def _sample_power(self):
+        """Background thread: poll nvidia-smi every interval while training runs."""
+        while self.is_running():
+            w = _sample_gpu_power_watts()
+            if w is not None:
+                self._power_samples.append(w)
+            time.sleep(_POWER_SAMPLE_INTERVAL)
+
+    def _energy_wh(self) -> Optional[float]:
+        """Calculate watt-hours from power samples and elapsed time."""
+        if not self._power_samples or not self._start_time or not self._end_time:
+            return None
+        avg_watts = sum(self._power_samples) / len(self._power_samples)
+        duration_hours = (self._end_time - self._start_time) / 3600.0
+        return round(avg_watts * duration_hours, 2)
+
     def _write_sidecar(self):
-        """Write dashboard_meta.json into the run directory for accurate timing."""
+        """Write dashboard_meta.json with timing and energy data."""
         if not self._last_run_name or not self._start_time or not self._end_time:
             return
         run_dir = self._runs_dir / self._last_run_name
-        if run_dir.exists():
-            sidecar = run_dir / "dashboard_meta.json"
-            try:
-                sidecar.write_text(json.dumps({
-                    "start_time": self._start_time,
-                    "end_time": self._end_time,
-                }))
-            except Exception:
-                pass
+        if not run_dir.exists():
+            return
+        sidecar = run_dir / "dashboard_meta.json"
+        try:
+            data = {
+                "start_time": self._start_time,
+                "end_time": self._end_time,
+            }
+            energy = self._energy_wh()
+            if energy is not None:
+                data["gpu_energy_wh"] = energy
+                data["gpu_avg_power_w"] = round(
+                    sum(self._power_samples) / len(self._power_samples), 1)
+                data["gpu_power_samples"] = len(self._power_samples)
+            sidecar.write_text(json.dumps(data, indent=2))
+        except Exception:
+            pass
 
 
 async def stream_logs(manager: TrainingManager):
-    """Async generator for SSE log streaming.
-
-    Waits for a run to start, streams all output, then emits a completion
-    or termination message. Stays open indefinitely so the browser connection
-    persists across multiple training runs without a page reload.
-    """
+    """Async generator for SSE log streaming."""
     cursor = 0
     was_running = False
 
@@ -149,7 +195,6 @@ async def stream_logs(manager: TrainingManager):
                 safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 yield f"data: <div class='log-line'>{safe}</div>\n\n"
         elif was_running:
-            # Run just finished — flush remaining buffered lines
             lines, cursor = manager.log_lines(cursor)
             for line in lines:
                 safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -161,6 +206,6 @@ async def stream_logs(manager: TrainingManager):
                 yield "data: <div class='log-line text-success fw-bold'>✓ Training complete.</div>\n\n"
 
             was_running = False
-            cursor = 0  # reset for next run
+            cursor = 0
 
         await asyncio.sleep(0.3)

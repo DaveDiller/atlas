@@ -15,6 +15,9 @@
         ⏳ Training in progress
       </span>
       <span class="text-muted small">{{ status.elapsed }}</span>
+      {% if status.current_power_w is not none %}
+        <span class="text-muted small">⚡ {{ "%.0f"|format(status.current_power_w) }}W</span>
+      {% endif %}
       <span class="text-muted small text-truncate" style="max-width:300px">
         {{ status.data_dir }}
       </span>

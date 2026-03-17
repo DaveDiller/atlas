@@ -17,6 +17,7 @@
             <th>Blind Acc</th>
             <th>Epochs</th>
             <th>Time</th>
+            <th class="d-none d-md-table-cell">GPU Energy</th>
             <th class="d-none d-md-table-cell">Data</th>
           </tr>
         </thead>
@@ -51,6 +52,14 @@
             </td>
             <td class="small">{{ run.epochs or '—' }}</td>
             <td class="small text-nowrap">{{ run.training_time or '—' }}</td>
+            <td class="small d-none d-md-table-cell">
+              {% if run.gpu_energy_wh is not none %}
+                {{ "%.2f"|format(run.gpu_energy_wh) }} Wh
+                {% if run.gpu_avg_power_w is not none %}
+                  <span class="text-muted">(avg {{ run.gpu_avg_power_w }}W)</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
             <td class="small text-muted text-truncate d-none d-md-table-cell" style="max-width:200px">
               {{ run.trained_on or '—' }}
             </td>
