@@ -95,14 +95,15 @@ RETRAIN_THRESHOLD = 50
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+import os
 from pathlib import Path
 
 ROOT_DIR             = Path(__file__).parent.parent
-DATA_DIR             = ROOT_DIR / "data"
+DATA_DIR             = Path(os.environ.get("ATLAS_DATA", ROOT_DIR / "data"))
 ESC50_SPECTROGRAMS   = DATA_DIR / "spectrograms"
 STEAD_SPECTROGRAMS   = DATA_DIR / "stead_spectrograms"
 COMBINED_DATASET     = DATA_DIR / "combined_spectrograms"
-RUNS_DIR             = ROOT_DIR / "runs"
+RUNS_DIR             = Path(os.environ.get("ATLAS_RUNS", ROOT_DIR / "runs"))
 INFERENCE_INBOX      = ROOT_DIR / "inbox"      # drop new images here
 INFERENCE_PENDING    = ROOT_DIR / "pending"    # awaiting human review
 INFERENCE_VERIFIED   = ROOT_DIR / "verified"   # reviewed and confirmed
