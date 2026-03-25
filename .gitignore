@@ -27,5 +27,9 @@ combined_spectrograms/
 # macOS
 .DS_Store
 
+# Java build output
+target/
+
 # Jupyter
 .ipynb_checkpoints/
+atlas-ml/dashboard/dashboard_config.json

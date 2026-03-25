@@ -23,8 +23,8 @@ from .run_reader import list_runs
 
 _HERE = Path(__file__).parent
 _ATLAS_ML_DIR = Path(os.environ.get("ATLAS_ML_DIR", _HERE.parent))
-_RUNS_DIR = Path(os.environ.get("ATLAS_RUNS_DIR", _ATLAS_ML_DIR / "runs"))
-_DEFAULT_DATA_DIR = os.environ.get("ATLAS_DATA_DIR", "")
+_RUNS_DIR = Path(os.environ.get("ATLAS_RUNS", "/data/atlas/runs"))
+_DEFAULT_DATA_DIR = os.environ.get("ATLAS_DATA", "/data/atlas/training")
 _CONFIG_FILE = _HERE / "dashboard_config.json"
 
 # ---------------------------------------------------------------------------
@@ -80,8 +80,7 @@ async def index(request: Request):
     runs = await asyncio.to_thread(list_runs, _RUNS_DIR)
     counts = await asyncio.to_thread(count_class_images, Path(data_dir)) if data_dir else {}
     status = manager.status()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "runs": runs,
         "counts": counts,
         "data_dir": data_dir,
@@ -113,8 +112,7 @@ async def data_stats(request: Request, path: str = ""):
     else:
         path = _load_config().get("data_dir", _DEFAULT_DATA_DIR)
     counts = await asyncio.to_thread(count_class_images, Path(path))
-    return templates.TemplateResponse("partials/data_stats.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partials/data_stats.html", {
         "counts": counts,
         "data_dir": path,
     })
@@ -123,8 +121,7 @@ async def data_stats(request: Request, path: str = ""):
 @app.get("/api/runs", response_class=HTMLResponse)
 async def runs_partial(request: Request):
     runs = await asyncio.to_thread(list_runs, _RUNS_DIR)
-    return templates.TemplateResponse("partials/run_table.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partials/run_table.html", {
         "runs": runs,
     })
 
@@ -133,14 +130,12 @@ async def runs_partial(request: Request):
 async def run_start(request: Request, data_dir: str = Form(...)):
     data_dir = data_dir.strip()
     if not data_dir:
-        return templates.TemplateResponse("partials/training_controls.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "partials/training_controls.html", {
             "status": manager.status(),
             "message": "Please enter a data directory path.",
         })
     if not Path(data_dir).exists():
-        return templates.TemplateResponse("partials/training_controls.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "partials/training_controls.html", {
             "status": manager.status(),
             "message": f"Directory not found: {data_dir}",
         })
@@ -149,8 +144,7 @@ async def run_start(request: Request, data_dir: str = Form(...)):
     _save_config(cfg)
     started = manager.start(data_dir)
     status = manager.status()
-    return templates.TemplateResponse("partials/training_controls.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partials/training_controls.html", {
         "status": status,
         "message": None if started else "A training run is already in progress.",
     })
@@ -159,8 +153,7 @@ async def run_start(request: Request, data_dir: str = Form(...)):
 @app.get("/api/run/status", response_class=HTMLResponse)
 async def run_status(request: Request):
     status = manager.status()
-    return templates.TemplateResponse("partials/training_controls.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partials/training_controls.html", {
         "status": status,
         "message": None,
     })
