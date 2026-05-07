@@ -71,7 +71,7 @@ class TrainingManager:
             self._power_samples = []
 
             cmd = [
-                sys.executable, "-m", "atlas_ml.train_das",
+                sys.executable, "-m", "javaseis.training.das.train",
                 "--data", data_dir,
             ]
             self._process = subprocess.Popen(
