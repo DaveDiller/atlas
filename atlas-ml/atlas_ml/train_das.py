@@ -21,7 +21,6 @@ import numpy as np
 import timm
 import torch
 import torch.nn as nn
-from PIL import Image
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
@@ -63,18 +62,15 @@ def get_device():
 # Dataset
 # ---------------------------------------------------------------------------
 def load_dataset(data_dir: Path):
-    """Auto-discover class subdirectories, load grayscale images."""
+    """Auto-discover class subdirectories, load raw float .bin samples."""
     class_names = sorted(p.name for p in data_dir.iterdir() if p.is_dir())
     class_to_idx = {c: i for i, c in enumerate(class_names)}
 
-    IMAGE_GLOBS = ["*.jpeg", "*.jpg", "*.png", "*.JPEG", "*.JPG", "*.PNG"]
-
     paths, labels = [], []
     for cls in class_names:
-        for pattern in IMAGE_GLOBS:
-            for img_path in (data_dir / cls).glob(pattern):
-                paths.append(img_path)
-                labels.append(class_to_idx[cls])
+        for bin_path in sorted((data_dir / cls).glob("*.bin")):
+            paths.append(bin_path)
+            labels.append(class_to_idx[cls])
 
     return paths, labels, class_names
 
@@ -89,22 +85,23 @@ class DasDataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx):
-        img = Image.open(self.paths[idx]).convert("L")  # force grayscale
+        data = np.fromfile(self.paths[idx], dtype='<f4').reshape(500, 500)
+        clip = np.percentile(np.abs(data), 98)
+        if clip == 0.0:
+            clip = 1.0
+        tensor = torch.from_numpy(
+            np.clip(data / clip, -1.0, 1.0).astype(np.float32)
+        ).unsqueeze(0)  # [1, 500, 500]
         if self.transform:
-            img = self.transform(img)
-        return img, self.labels[idx]
+            tensor = self.transform(tensor)
+        return tensor, self.labels[idx]
 
 
 # ---------------------------------------------------------------------------
 # Transforms — grayscale, seismic-appropriate augmentation
 # ---------------------------------------------------------------------------
-# Normalize to [-1, 1] — standard for single-channel data
-MEAN = [0.5]
-STD  = [0.5]
-
 def make_train_transform(img_size):
     return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
         transforms.RandomHorizontalFlip(),          # time-axis flip: valid for DAS
         transforms.RandomAffine(degrees=0,          # small time/channel shifts
                                 translate=(0.05, 0.05)),
@@ -113,16 +110,7 @@ def make_train_transform(img_size):
                               padding_mode="reflect"),
         transforms.ColorJitter(brightness=0.3,      # simulate amplitude variations
                                contrast=0.3),       # simulate noise floor differences
-        transforms.ToTensor(),                      # → [0, 1]
-        transforms.Normalize(MEAN, STD),            # → [-1, 1]
         AddGaussianNoise(std=0.02),                 # simulate sensor noise
-    ])
-
-def make_val_transform(img_size):
-    return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(MEAN, STD),
     ])
 
 
@@ -413,12 +401,12 @@ def train(data_dir: Path, img_size: int = IMG_SIZE):
     # ── Load data ─────────────────────────────────────────────────────────────
     paths, labels, class_names = load_dataset(data_dir)
     if not paths:
-        print("No images found. Check data directory.")
+        print("No .bin samples found. Check data directory.")
         return
 
     num_classes = len(class_names)
     counts = Counter(labels)
-    print(f"{num_classes} classes, {len(paths)} total images:")
+    print(f"{num_classes} classes, {len(paths)} total samples:")
     for i, name in enumerate(class_names):
         print(f"  {name:25s}: {counts[i]:>6}")
 
@@ -431,11 +419,10 @@ def train(data_dir: Path, img_size: int = IMG_SIZE):
     print(f"\nSplit — train:{len(idx_tr)}  val:{len(idx_val)}  test:{len(idx_te)}\n")
 
     train_tf = make_train_transform(img_size)
-    val_tf   = make_val_transform(img_size)
 
     train_ds = DasDataset([paths[i] for i in idx_tr], y_tr, train_tf)
-    val_ds   = DasDataset([paths[i] for i in idx_val], y_val, val_tf)
-    test_ds  = DasDataset([paths[i] for i in idx_te],  y_te,  val_tf)
+    val_ds   = DasDataset([paths[i] for i in idx_val], y_val)
+    test_ds  = DasDataset([paths[i] for i in idx_te],  y_te)
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE,
                               sampler=make_sampler(y_tr), num_workers=4)
@@ -525,8 +512,7 @@ def train(data_dir: Path, img_size: int = IMG_SIZE):
         "class_names": class_names,
         "img_size": img_size,
         "in_chans": 1,
-        "norm_mean": MEAN,
-        "norm_std": STD,
+        "norm": "clip_98pct_scale_neg1_to_1",
         "confidence_threshold": 0.60,
         "p1_epochs": P1_EPOCHS,
         "p2_epochs": P2_EPOCHS,
