@@ -23,7 +23,7 @@ from .run_reader import list_runs
 
 _HERE = Path(__file__).parent
 _ATLAS_ML_DIR = Path(os.environ.get("ATLAS_ML_DIR", _HERE.parent))
-_RUNS_DIR = Path(os.environ.get("ATLAS_RUNS", "/data/atlas/runs"))
+_RUNS_DIR = Path(os.environ.get("ATLAS_RUNS", _ATLAS_ML_DIR / "runs"))
 _DEFAULT_DATA_DIR = os.environ.get("ATLAS_DATA", "/data/atlas/training")
 _CONFIG_FILE = _HERE / "dashboard_config.json"
 
